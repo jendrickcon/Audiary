@@ -253,6 +253,7 @@ class ExploreViewModel(
                         error = null
                     )
                 }
+                startPlaylistPrefetch(source.playlistId, page.next)
             } else {
                 _state.update {
                     it.copy(
@@ -272,9 +273,51 @@ class ExploreViewModel(
             } else {
                 e.message
             }
-            _state.update { it.copy(isLoading = false, error = msg) }
+            _state.update {
+                it.copy(
+                    rows = emptyList(),
+                    isLoading = false,
+                    source = source,
+                    songCount = 0,
+                    error = msg
+                )
+            }
         } catch (e: Exception) {
-            _state.update { it.copy(isLoading = false, error = "Couldn't load playlist tracks. Check your connection.") }
+            _state.update {
+                it.copy(
+                    rows = emptyList(),
+                    isLoading = false,
+                    source = source,
+                    songCount = 0,
+                    error = "Couldn't load playlist tracks. Check your connection."
+                )
+            }
+        }
+    }
+
+    private fun startPlaylistPrefetch(playlistId: String, initialNext: String?) {
+        var nextUrl = initialNext ?: return
+        prefetchJob?.cancel()
+        prefetchJob = viewModelScope.launch(Dispatchers.IO) {
+            var fetchedPages = 0
+            while (nextUrl.isNotBlank() && fetchedPages < 4 && isActive) {
+                try {
+                    delay(400) // Pacing to prevent API pressure
+                    val page = spotifyApi?.playlistTracks(playlistId, next = nextUrl) ?: break
+                    val newTracks = page.items
+                    if (newTracks.isEmpty()) break
+                    db?.dao()?.storeSongs(newTracks.map { it.entity() })
+
+                    val merged = (playlistPool + newTracks).distinctBy { it.id }
+                    playlistPool = merged
+
+                    _state.update { it.copy(songCount = playlistPool.size) }
+                    nextUrl = page.next.orEmpty()
+                    fetchedPages++
+                } catch (_: Exception) {
+                    break
+                }
+            }
         }
     }
 

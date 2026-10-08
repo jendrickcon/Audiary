@@ -205,7 +205,16 @@ class SpotifyLibraryViewModel(
                 } else {
                     e.message
                 }
-                _state.update { it.copy(playlistError = errorMsg) }
+                _state.update { current ->
+                    val updatedPlaylists = current.playlists.map {
+                        if (it.id == playlist.id) it.copy(isAccessible = false) else it
+                    }
+                    current.copy(
+                        playlists = updatedPlaylists,
+                        selectedPlaylist = current.selectedPlaylist?.copy(isAccessible = false),
+                        playlistError = errorMsg
+                    )
+                }
             }
         }
     }

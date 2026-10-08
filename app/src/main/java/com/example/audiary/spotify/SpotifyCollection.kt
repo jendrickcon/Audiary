@@ -718,8 +718,10 @@ private fun ColumnScope.PlaylistsTab(
                         overflow = TextOverflow.Ellipsis
                     )
                     Spacer(Modifier.height(2.dp))
+                    val subtitle = "${playlist.formattedTrackCount()} · by ${playlist.ownerName}" +
+                        if (!playlist.isOwnerOrCollaborator) " · Owner access required" else ""
                     Text(
-                        "${playlist.totalTracks} tracks · by ${playlist.ownerName}",
+                        subtitle,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
@@ -795,7 +797,7 @@ private fun ColumnScope.PlaylistDetailView(
             }
             Spacer(Modifier.height(4.dp))
             Text(
-                "${playlist.totalTracks} tracks · by ${playlist.ownerName}",
+                "${playlist.formattedTrackCount()} · by ${playlist.ownerName}",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -804,7 +806,7 @@ private fun ColumnScope.PlaylistDetailView(
             Row(horizontalArrangement = Arrangement.spacedBy(Space.small)) {
                 Button(
                     onClick = onExplore,
-                    enabled = songs.isNotEmpty()
+                    enabled = playlist.isOwnerOrCollaborator && songs.isNotEmpty() && error == null
                 ) {
                     Icon(Icons.Outlined.AutoAwesome, null, Modifier.size(18.dp))
                     Spacer(Modifier.width(Space.small))
@@ -817,6 +819,21 @@ private fun ColumnScope.PlaylistDetailView(
                     Spacer(Modifier.width(Space.small))
                     Text("Open in Spotify")
                 }
+            }
+        }
+
+        if (!playlist.isOwnerOrCollaborator && error == null) {
+            Surface(
+                color = MaterialTheme.colorScheme.surfaceVariant,
+                shape = MaterialTheme.shapes.small,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = Space.page, vertical = Space.small)
+            ) {
+                Text(
+                    "Under Spotify's Developer Mode restrictions, tracks can only be accessed from playlists you own or collaborate on. You can still open this playlist directly in Spotify.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(Space.medium)
+                )
             }
         }
 

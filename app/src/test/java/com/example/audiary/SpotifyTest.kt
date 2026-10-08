@@ -165,4 +165,269 @@ class SpotifyTest {
         assertEquals(listOf("1", "2"), uri.queryParams("multi"))
         assertNull(uri.queryParam("nonexistent"))
     }
+
+    // Priority 7: Spotify February 2026 Playlist Schema & Dev Mode Restriction Tests
+
+    @Test fun playlistParsingSupportsItemsTotalField() {
+        val json = JSONObject("""{
+            "id": "pl_items_total",
+            "name": "Items Total Playlist",
+            "description": "2026 schema playlist",
+            "owner": {"id": "user123", "display_name": "Test User"},
+            "items": {"total": 42},
+            "external_urls": {"spotify": "https://open.spotify.com/playlist/pl_items_total"}
+        }""")
+        val playlist = SpotifyApi.parsePlaylist(json, currentUserId = "user123")
+        assertNotNull(playlist)
+        assertEquals("pl_items_total", playlist!!.id)
+        assertEquals(42, playlist.totalTracks)
+        assertEquals("42 tracks", playlist.formattedTrackCount())
+        assertTrue(playlist.isOwnerOrCollaborator)
+        assertTrue(playlist.isAccessible)
+    }
+
+    @Test fun playlistParsingSupportsLegacyTracksTotalField() {
+        val json = JSONObject("""{
+            "id": "pl_tracks_total",
+            "name": "Legacy Tracks Playlist",
+            "owner": {"id": "user123", "display_name": "Test User"},
+            "tracks": {"total": 15},
+            "external_urls": {"spotify": "https://open.spotify.com/playlist/pl_tracks_total"}
+        }""")
+        val playlist = SpotifyApi.parsePlaylist(json, currentUserId = "user123")
+        assertNotNull(playlist)
+        assertEquals(15, playlist!!.totalTracks)
+        assertEquals("15 tracks", playlist.formattedTrackCount())
+    }
+
+    @Test fun playlistParsingPrioritizesItemsTotalWhenBothFieldsPresent() {
+        val json = JSONObject("""{
+            "id": "pl_both_fields",
+            "name": "Dual Fields Playlist",
+            "owner": {"id": "user123", "display_name": "Test User"},
+            "items": {"total": 88},
+            "tracks": {"total": 12},
+            "external_urls": {"spotify": "https://open.spotify.com/playlist/pl_both_fields"}
+        }""")
+        val playlist = SpotifyApi.parsePlaylist(json, currentUserId = "user123")
+        assertNotNull(playlist)
+        // items.total (88) takes precedence over tracks.total (12)
+        assertEquals(88, playlist!!.totalTracks)
+        assertEquals("88 tracks", playlist.formattedTrackCount())
+    }
+
+    @Test fun playlistParsingReturnsNullTotalTracksWhenNeitherFieldPresent() {
+        val json = JSONObject("""{
+            "id": "pl_neither_field",
+            "name": "Missing Count Playlist",
+            "owner": {"id": "user123", "display_name": "Test User"},
+            "external_urls": {"spotify": "https://open.spotify.com/playlist/pl_neither_field"}
+        }""")
+        val playlist = SpotifyApi.parsePlaylist(json, currentUserId = "user123")
+        assertNotNull(playlist)
+        assertNull(playlist!!.totalTracks)
+        assertNotEquals(0, playlist.totalTracks)
+        assertEquals("Track count unavailable", playlist.formattedTrackCount())
+    }
+
+    @Test fun playlistParsingRepresentsGenuinelyZeroTracks() {
+        val json = JSONObject("""{
+            "id": "pl_zero_tracks",
+            "name": "Empty Playlist",
+            "owner": {"id": "user123", "display_name": "Test User"},
+            "items": {"total": 0},
+            "external_urls": {"spotify": "https://open.spotify.com/playlist/pl_zero_tracks"}
+        }""")
+        val playlist = SpotifyApi.parsePlaylist(json, currentUserId = "user123")
+        assertNotNull(playlist)
+        assertEquals(0, playlist!!.totalTracks)
+        assertEquals("0 tracks", playlist.formattedTrackCount())
+    }
+
+    @Test fun playlistTracksParsesNewItemObjectField() = runBlocking {
+        val store = MemoryStore()
+        val auth = SpotifyAuthManager(
+            store, SpotifyHttp(), scope, "client-id",
+            "https://callback.test/oauth/callback",
+            server.url("/token").toString(),
+            server.url("/me").toString()
+        )
+        auth.begin()
+        val pendingState = store.session.pending!!.state
+        server.enqueue(MockResponse().setBody("""{"access_token":"token-6","refresh_token":"ref-6","expires_in":3600}"""))
+        server.enqueue(MockResponse().setBody("""{"id":"user_test"}"""))
+        auth.complete("https://callback.test/oauth/callback?state=$pendingState&code=code-6")
+
+        val api = SpotifyApi(auth, SpotifyHttp(), baseUrl = server.url("").toString().removeSuffix("/"))
+
+        server.enqueue(MockResponse().setBody("""{
+            "items": [
+                {
+                    "added_at": "2026-03-01T12:00:00Z",
+                    "item": {
+                        "id": "trackitem1",
+                        "name": "Item Schema Song",
+                        "artists": [{"name": "Modern Artist"}],
+                        "album": {
+                            "id": "album1",
+                            "name": "Modern Album",
+                            "release_date": "2026-01-01",
+                            "images": [{"url": "https://i.scdn.co/image/modern"}]
+                        },
+                        "duration_ms": 205000,
+                        "type": "track"
+                    }
+                }
+            ],
+            "total": 1,
+            "next": null
+        }"""))
+
+        val page = api.playlistTracks("plitemtest")
+        assertEquals(1, page.items.size)
+        val song = page.items[0]
+        assertEquals("spotify:track:trackitem1", song.id)
+        assertEquals("Item Schema Song", song.title)
+        assertEquals("Modern Artist", song.artist)
+        assertEquals("Modern Album", song.album)
+        assertEquals("https://i.scdn.co/image/modern", song.artUrl)
+        assertEquals(205000L, song.durationMs)
+    }
+
+    @Test fun playlistTracksParsesLegacyTrackObjectField() = runBlocking {
+        val store = MemoryStore()
+        val auth = SpotifyAuthManager(
+            store, SpotifyHttp(), scope, "client-id",
+            "https://callback.test/oauth/callback",
+            server.url("/token").toString(),
+            server.url("/me").toString()
+        )
+        auth.begin()
+        val pendingState = store.session.pending!!.state
+        server.enqueue(MockResponse().setBody("""{"access_token":"token-7","refresh_token":"ref-7","expires_in":3600}"""))
+        server.enqueue(MockResponse().setBody("""{"id":"user_test"}"""))
+        auth.complete("https://callback.test/oauth/callback?state=$pendingState&code=code-7")
+
+        val api = SpotifyApi(auth, SpotifyHttp(), baseUrl = server.url("").toString().removeSuffix("/"))
+
+        server.enqueue(MockResponse().setBody("""{
+            "items": [
+                {
+                    "added_at": "2025-06-01T12:00:00Z",
+                    "track": {
+                        "id": "tracklegacy1",
+                        "name": "Legacy Schema Song",
+                        "artists": [{"name": "Classic Artist"}],
+                        "album": {
+                            "id": "albumlegacy",
+                            "name": "Classic Album",
+                            "release_date": "2025-01-01",
+                            "images": [{"url": "https://i.scdn.co/image/legacy"}]
+                        },
+                        "duration_ms": 195000,
+                        "type": "track"
+                    }
+                }
+            ],
+            "total": 1,
+            "next": null
+        }"""))
+
+        val page = api.playlistTracks("pllegacytest")
+        assertEquals(1, page.items.size)
+        val song = page.items[0]
+        assertEquals("spotify:track:tracklegacy1", song.id)
+        assertEquals("Legacy Schema Song", song.title)
+        assertEquals("Classic Artist", song.artist)
+        assertEquals("Classic Album", song.album)
+    }
+
+    @Test fun playlistTracksPreservesHttp403InaccessibleError() = runBlocking {
+        val store = MemoryStore()
+        val auth = SpotifyAuthManager(
+            store, SpotifyHttp(), scope, "client-id",
+            "https://callback.test/oauth/callback",
+            server.url("/token").toString(),
+            server.url("/me").toString()
+        )
+        auth.begin()
+        val pendingState = store.session.pending!!.state
+        server.enqueue(MockResponse().setBody("""{"access_token":"token-8","refresh_token":"ref-8","expires_in":3600}"""))
+        server.enqueue(MockResponse().setBody("""{"id":"user_test"}"""))
+        auth.complete("https://callback.test/oauth/callback?state=$pendingState&code=code-8")
+
+        val api = SpotifyApi(auth, SpotifyHttp(), baseUrl = server.url("").toString().removeSuffix("/"))
+
+        server.enqueue(MockResponse().setResponseCode(403).setBody("""{
+            "error": {
+                "status": 403,
+                "message": "Spotify denied access. Check the app owner's Premium subscription and the account's access in the developer dashboard."
+            }
+        }"""))
+
+        try {
+            api.playlistTracks("inaccessibleplaylist")
+            fail("Expected HTTP 403 SpotifyFailure for inaccessible playlist")
+        } catch (e: SpotifyFailure) {
+            assertEquals(403, e.status)
+            assertTrue(e.message.contains("Spotify denied access"))
+        }
+    }
+
+    @Test fun playlistItemParsingFiltersNullLocalAndEpisodeItems() {
+        // Episode item should be filtered out
+        val episodeJson = JSONObject("""{
+            "item": {
+                "id": "episode_123",
+                "name": "Podcast Episode",
+                "type": "episode"
+            }
+        }""")
+        assertNull(SpotifyApi.parsePlaylistItem(episodeJson))
+
+        // Local file item should be filtered out
+        val localJson = JSONObject("""{
+            "is_local": true,
+            "item": {
+                "id": "local_track_1",
+                "name": "Local MP3",
+                "type": "track"
+            }
+        }""")
+        assertNull(SpotifyApi.parsePlaylistItem(localJson))
+
+        // Null item should be filtered out
+        val nullItemJson = JSONObject("""{"item": null}""")
+        assertNull(SpotifyApi.parsePlaylistItem(nullItemJson))
+
+        // Empty JSON should be filtered out
+        val emptyJson = JSONObject("""{}""")
+        assertNull(SpotifyApi.parsePlaylistItem(emptyJson))
+
+        // Invalid track ID should be filtered out
+        val invalidIdJson = JSONObject("""{
+            "item": {
+                "id": "../malformed",
+                "name": "Bad ID Track",
+                "type": "track"
+            }
+        }""")
+        assertNull(SpotifyApi.parsePlaylistItem(invalidIdJson))
+    }
+
+    @Test fun playlistOwnershipFlagsNonOwnedAndNonCollaborativeAsRestricted() {
+        val json = JSONObject("""{
+            "id": "pl_followed",
+            "name": "Followed Playlist",
+            "owner": {"id": "stranger_account", "display_name": "Stranger"},
+            "collaborative": false,
+            "items": {"total": 30},
+            "external_urls": {"spotify": "https://open.spotify.com/playlist/pl_followed"}
+        }""")
+        val playlist = SpotifyApi.parsePlaylist(json, currentUserId = "my_account")
+        assertNotNull(playlist)
+        assertEquals("stranger_account", playlist!!.ownerId)
+        assertFalse(playlist.isOwnerOrCollaborator)
+        assertEquals(30, playlist.totalTracks)
+    }
 }

@@ -9,7 +9,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.*
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -78,7 +77,7 @@ import com.example.audiary.ui.theme.Space
                 ) {
                     val icon = when (state.source) {
                         is DiscoverySource.AllSavedSongs -> Icons.Outlined.FavoriteBorder
-                        is DiscoverySource.SpotifyPlaylistSource -> Icons.AutoMirrored.Outlined.QueueMusic
+                        is DiscoverySource.SpotifyPlaylistSource -> Icons.Outlined.QueueMusic
                         is DiscoverySource.ArtistSource -> Icons.Outlined.Person
                         is DiscoverySource.Demo -> Icons.Outlined.Album
                     }
@@ -221,10 +220,12 @@ import com.example.audiary.ui.theme.Space
                             items(state.availablePlaylists, key = { it.id }) { playlist ->
                                 val isSelected = state.source is DiscoverySource.SpotifyPlaylistSource &&
                                     (state.source as DiscoverySource.SpotifyPlaylistSource).playlistId == playlist.id
+                                val subtitleText = "${playlist.formattedTrackCount()} · by ${playlist.ownerName}" +
+                                    if (!playlist.isOwnerOrCollaborator) " · Owner access required" else ""
                                 SourceOptionItem(
                                     title = playlist.name,
-                                    subtitle = "${playlist.totalTracks} tracks · by ${playlist.ownerName}",
-                                    icon = Icons.AutoMirrored.Outlined.QueueMusic,
+                                    subtitle = subtitleText,
+                                    icon = Icons.Outlined.QueueMusic,
                                     isSelected = isSelected,
                                     onClick = {
                                         vm.selectSource(
