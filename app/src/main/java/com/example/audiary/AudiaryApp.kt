@@ -21,4 +21,5 @@ class AudiaryApp : Application() {
     val diary: DiaryRepository by lazy { RoomDiaryRepository(database, seed) }
     val favorites: FavoritesRepository by lazy { RoomFavoritesRepository(database) }
     val discoverySourceManager by lazy { com.example.audiary.explore.DiscoverySourceManager(this) }
+    val playbackController by lazy { SpotifyPlaybackController(this) }
 }

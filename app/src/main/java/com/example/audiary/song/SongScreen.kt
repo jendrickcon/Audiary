@@ -21,11 +21,13 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.audiary.library.FavoritesViewModel
 import com.example.audiary.model.*
 import com.example.audiary.spotify.SpotifyAttribution
+import com.example.audiary.spotify.SpotifyPlaybackController
 import com.example.audiary.spotify.openSpotify
 import com.example.audiary.ui.*
 import com.example.audiary.ui.theme.Space
 
 @Composable fun SongScreen(vm: SongViewModel, editor: NoteEditorViewModel, favoritesVm: FavoritesViewModel,
+    playbackController: SpotifyPlaybackController? = null,
     focusNoteId: String? = null, onBack: () -> Unit) {
     val state by vm.state.collectAsStateWithLifecycle()
     val favorites by favoritesVm.favorites.collectAsStateWithLifecycle()
@@ -55,7 +57,7 @@ import com.example.audiary.ui.theme.Space
             verticalArrangement = Arrangement.spacedBy(Space.medium), modifier = Modifier.fillMaxSize()) {
             item {
                 val song = state.song
-                if (song != null) SongHero(song)
+                if (song != null) SongHero(song, playbackController)
                 else EmptyState("The music stays with you.", state.error ?: "Music details are unavailable.") {
                     TextButton(onClick = vm::load) { Text("Try loading again") }
                 }
@@ -91,9 +93,17 @@ import com.example.audiary.ui.theme.Space
         onConfirm = { vm.deleteNote(id); deleteId = null }) }
 }
 
-@Composable private fun SongHero(song: Song) {
+@Composable private fun SongHero(
+    song: Song,
+    playbackController: SpotifyPlaybackController? = null
+) {
     val context = LocalContext.current
     var linkError by remember { mutableStateOf<String?>(null) }
+    val playbackState by playbackController?.state?.collectAsStateWithLifecycle() ?: remember { mutableStateOf(null) }
+
+    val isThisSongActive = playbackState?.trackId == song.spotifyTrackId || playbackState?.trackId == song.id
+    val isPlaying = isThisSongActive && playbackState?.isPlaying == true
+
     Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
         BoxWithConstraints(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
             Cover(song, Modifier.size(minOf(maxWidth * .72f, 280.dp)))
@@ -108,17 +118,61 @@ import com.example.audiary.ui.theme.Space
             color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
         Text(song.durationText, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Spacer(Modifier.height(Space.medium))
-        OutlinedButton(onClick = {
-            try {
-                val url = song.externalUrl ?: "https://open.spotify.com/search/" + Uri.encode(song.title + " " + song.artist)
-                openSpotify(context, url)
-                linkError = null
-            } catch (e: Exception) { linkError = "No app could open this link. Install a browser or Spotify and try again." }
-        }) {
-            Icon(Icons.Outlined.OpenInNew, null, Modifier.size(16.dp))
-            Spacer(Modifier.width(Space.small))
-            Text(if (song.spotifyTrackId != null) "Open in Spotify" else "Search on Spotify")
+
+        // Playback Actions Row: Play/Pause button and External App Fallback
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = Space.small),
+            horizontalArrangement = Arrangement.spacedBy(Space.small),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Button(
+                onClick = {
+                    if (isThisSongActive) {
+                        playbackController?.togglePlayPause()
+                    } else {
+                        val targetId = song.spotifyTrackId ?: song.id
+                        playbackController?.play(
+                            trackIdOrUri = targetId,
+                            title = song.title,
+                            artist = song.artist,
+                            coverUrl = song.artUrl
+                        )
+                    }
+                },
+                modifier = Modifier.weight(1f).heightIn(min = Space.touch),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary
+                )
+            ) {
+                Icon(
+                    imageVector = if (isPlaying) Icons.Outlined.Pause else Icons.Outlined.PlayArrow,
+                    contentDescription = if (isPlaying) "Pause track" else "Play track",
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(Modifier.width(Space.small))
+                Text(if (isPlaying) "Pause" else if (isThisSongActive) "Resume" else "Play")
+            }
+
+            OutlinedButton(
+                onClick = {
+                    try {
+                        val url = song.externalUrl ?: "https://open.spotify.com/search/" + Uri.encode(song.title + " " + song.artist)
+                        openSpotify(context, url)
+                        linkError = null
+                    } catch (e: Exception) {
+                        linkError = "No app could open this link. Install a browser or Spotify and try again."
+                    }
+                },
+                modifier = Modifier.weight(1f).heightIn(min = Space.touch)
+            ) {
+                Icon(Icons.Outlined.OpenInNew, null, Modifier.size(16.dp))
+                Spacer(Modifier.width(Space.small))
+                Text(if (song.spotifyTrackId != null) "Open App" else "Search App")
+            }
         }
+
+        Spacer(Modifier.height(Space.small))
         if (song.source == MusicSource.Demo) Text("Demo track · Original Audiary artwork", style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant)
         else song.externalUrl?.let { SpotifyAttribution(it) }

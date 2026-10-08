@@ -44,4 +44,10 @@ class MainActivity : ComponentActivity() {
         com.example.audiary.spotify.AudiaryLog.i("INTENT_RECEIVED: deep link intent received with scheme=${uri.scheme}, host=${uri.host}, path=${uri.path}")
         (application as AudiaryApp).spotifyAuth.acceptRedirect(uri.toString())
     }
+    override fun onDestroy() {
+        super.onDestroy()
+        if (isFinishing) {
+            (application as AudiaryApp).playbackController.disconnect()
+        }
+    }
 }

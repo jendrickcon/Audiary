@@ -31,6 +31,7 @@ import com.example.audiary.spotify.*
     val favorites: FavoritesViewModel = viewModel(factory = viewModelFactory { initializer { FavoritesViewModel(app.favorites) } })
     val error by favorites.error.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
+    val playbackState by app.playbackController.state.collectAsStateWithLifecycle()
     LaunchedEffect(error) { error?.let { snackbar.showSnackbar(it); favorites.clearError() } }
     fun song(id: String, memory: String = "") {
         val path = if (memory.isNotEmpty()) "song/${Uri.encode(id)}?memory=${Uri.encode(memory)}" else "song/${Uri.encode(id)}"
@@ -40,18 +41,30 @@ import com.example.audiary.spotify.*
         contentWindowInsets = WindowInsets.safeDrawing,
         snackbarHost = { SnackbarHost(snackbar) },
         bottomBar = {
-            if (current in tabs) NavigationBar(containerColor = MaterialTheme.colorScheme.background, tonalElevation = 0.dp) {
-                tabs.forEachIndexed { i, route ->
-                    NavigationBarItem(selected = current == route,
-                        onClick = { nav.navigate(route) {
-                            popUpTo(nav.graph.findStartDestination().id) { saveState = true }
-                            launchSingleTop = true
-                            restoreState = true
-                        } },
-                        icon = { Icon(icons[i], null, Modifier.size(22.dp)) },
-                        label = { Text(route.replaceFirstChar { it.uppercase() }) },
-                        colors = NavigationBarItemDefaults.colors(indicatorColor = MaterialTheme.colorScheme.surface,
-                            selectedIconColor = MaterialTheme.colorScheme.primary, selectedTextColor = MaterialTheme.colorScheme.primary))
+            Column(Modifier.fillMaxWidth()) {
+                if (current in tabs && playbackState.hasTrack) {
+                    MiniPlayer(
+                        playbackState = playbackState,
+                        onTogglePlayPause = { app.playbackController.togglePlayPause() },
+                        onSkipNext = { app.playbackController.skipNext() },
+                        onSkipPrevious = { app.playbackController.skipPrevious() },
+                        onSeekTo = { app.playbackController.seekTo(it) },
+                        onOpenSong = { songId -> song(songId) }
+                    )
+                }
+                if (current in tabs) NavigationBar(containerColor = MaterialTheme.colorScheme.background, tonalElevation = 0.dp) {
+                    tabs.forEachIndexed { i, route ->
+                        NavigationBarItem(selected = current == route,
+                            onClick = { nav.navigate(route) {
+                                popUpTo(nav.graph.findStartDestination().id) { saveState = true }
+                                launchSingleTop = true
+                                restoreState = true
+                            } },
+                            icon = { Icon(icons[i], null, Modifier.size(22.dp)) },
+                            label = { Text(route.replaceFirstChar { it.uppercase() }) },
+                            colors = NavigationBarItemDefaults.colors(indicatorColor = MaterialTheme.colorScheme.surface,
+                                selectedIconColor = MaterialTheme.colorScheme.primary, selectedTextColor = MaterialTheme.colorScheme.primary))
+                    }
                 }
             }
         }) { padding ->
@@ -101,8 +114,14 @@ import com.example.audiary.spotify.*
                 val id = backStack.arguments?.getString("songId").orEmpty()
                 val vm: SongViewModel = viewModel(factory = viewModelFactory { initializer { SongViewModel(id, app.music, app.diary) } })
                 val editor: NoteEditorViewModel = viewModel(factory = viewModelFactory { initializer { NoteEditorViewModel(app.diary, createSavedStateHandle()) } })
-                SongScreen(vm, editor, favorites, backStack.arguments?.getString("memory")?.takeIf { it.isNotEmpty() },
-                    onBack = { nav.popBackStack() })
+                SongScreen(
+                    vm = vm,
+                    editor = editor,
+                    favoritesVm = favorites,
+                    playbackController = app.playbackController,
+                    focusNoteId = backStack.arguments?.getString("memory")?.takeIf { it.isNotEmpty() },
+                    onBack = { nav.popBackStack() }
+                )
             }
         }
     }
