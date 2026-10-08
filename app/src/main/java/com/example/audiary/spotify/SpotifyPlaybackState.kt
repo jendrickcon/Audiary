@@ -39,3 +39,4 @@ data class SpotifyPlaybackState(
         return "%d:%02d".format(mins, secs)
     }
 }
+

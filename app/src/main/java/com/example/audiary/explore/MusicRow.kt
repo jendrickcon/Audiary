@@ -48,12 +48,13 @@ private const val RESUME_DELAY_MS = 900L
     val middle = Int.MAX_VALUE / 2
     val state = listState ?: rememberLazyListState(initialFirstVisibleItemIndex = middle - middle % size + startOffset)
     var touched by remember { mutableStateOf(false) }
+    var isAutoScrolling by remember { mutableStateOf(false) }
     var lastInteraction by remember { mutableLongStateOf(0L) }
     val density = LocalDensity.current
     val speed = with(density) { speedDpPerSec.dp.toPx() }
     val screenWidthPx = with(density) { androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp.dp.toPx() }
     val lifecycle = LocalLifecycleOwner.current.lifecycle
-    LaunchedEffect(speed, rightward, lifecycle, autoMove) {
+    LaunchedEffect(state, speed, rightward, lifecycle, autoMove) {
         if (!autoMove) return@LaunchedEffect
         lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
             var last = withFrameNanos { it }
@@ -62,14 +63,19 @@ private const val RESUME_DELAY_MS = 900L
                 val dt = ((now - last) / 1_000_000_000f).coerceAtMost(.05f)
                 last = now
                 val uptime = SystemClock.uptimeMillis()
-                if (touched || state.isScrollInProgress) lastInteraction = uptime
-                else if (uptime - lastInteraction >= RESUME_DELAY_MS) {
+                if (touched || (!isAutoScrolling && state.isScrollInProgress)) {
+                    lastInteraction = uptime
+                } else if (uptime - lastInteraction >= RESUME_DELAY_MS) {
                     val multiplier = speedMultiplier()
                     val effectiveSpeed = speed * multiplier
-                    try { state.scrollBy((if (rightward) -effectiveSpeed else effectiveSpeed) * dt) }
-                    catch (e: CancellationException) {
+                    try {
+                        isAutoScrolling = true
+                        state.scrollBy((if (rightward) -effectiveSpeed else effectiveSpeed) * dt)
+                    } catch (e: CancellationException) {
                         if (!currentCoroutineContext().isActive) throw e
                         lastInteraction = SystemClock.uptimeMillis()
+                    } finally {
+                        isAutoScrolling = false
                     }
                 }
             }

@@ -4,6 +4,7 @@ import androidx.compose.animation.*
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.gestures.scrollBy
@@ -12,7 +13,11 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.res.painterResource
+import com.example.audiary.R
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
@@ -50,7 +55,7 @@ import kotlinx.coroutines.launch
     val coroutineScope = rememberCoroutineScope()
 
     val middle = Int.MAX_VALUE / 2
-    val rowStates = remember(state.rows) {
+    val rowStates = remember(state.source) {
         List(ROW_COUNT) { index ->
             val songs = state.rows.getOrNull(index).orEmpty()
             val size = songs.size.coerceAtLeast(1)
@@ -65,7 +70,17 @@ import kotlinx.coroutines.launch
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column(Modifier.weight(1f)) {
-                Text("Audiary", style = MaterialTheme.typography.displaySmall)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Image(
+                        painter = painterResource(R.drawable.app_logo),
+                        contentDescription = "Audiary Logo",
+                        modifier = Modifier
+                            .size(34.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                    )
+                    Spacer(Modifier.width(Space.small))
+                    Text("Audiary", style = MaterialTheme.typography.displaySmall)
+                }
                 Spacer(Modifier.height(2.dp))
                 Text(
                     "Your music. Your memories.",
