@@ -1,11 +1,8 @@
 package com.example.audiary
 
+import android.content.Intent
 import android.graphics.Color
 import android.os.Bundle
-import android.content.Intent
-import androidx.lifecycle.lifecycleScope
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.CancellationException
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent

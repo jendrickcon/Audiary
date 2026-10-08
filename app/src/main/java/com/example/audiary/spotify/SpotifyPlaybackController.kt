@@ -7,7 +7,11 @@ import com.example.audiary.BuildConfig
 import com.spotify.android.appremote.api.ConnectionParams
 import com.spotify.android.appremote.api.Connector
 import com.spotify.android.appremote.api.SpotifyAppRemote
+import com.spotify.android.appremote.api.error.AuthenticationFailedException
 import com.spotify.android.appremote.api.error.CouldNotFindSpotifyApp
+import com.spotify.android.appremote.api.error.NotLoggedInException
+import com.spotify.android.appremote.api.error.OfflineModeException
+import com.spotify.android.appremote.api.error.UserNotAuthorizedException
 import com.spotify.protocol.types.PlayerState
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -58,16 +62,21 @@ class SpotifyPlaybackController(
      * @param showAuthView whether to show Spotify auth view if needed
      * @param onConnected callback invoked when connection is established
      */
-    fun connect(showAuthView: Boolean = false, onConnected: (() -> Unit)? = null) {
+    fun connect(showAuthView: Boolean = true, onConnected: (() -> Unit)? = null) {
         if (appRemote?.isConnected == true) {
             _state.update { it.copy(isConnected = true, isConnecting = false, error = null) }
             onConnected?.invoke()
             return
         }
 
+        if (_state.value.isConnecting) {
+            AudiaryLog.d("REMOTE_CONNECT_STARTED: connection already in progress, avoiding duplicate attempt")
+            return
+        }
+
         val isInstalled = SpotifyAppRemote.isSpotifyInstalled(context)
         if (!isInstalled) {
-            AudiaryLog.w("SpotifyPlaybackController: Spotify app is not installed.")
+            AudiaryLog.w("REMOTE_CONNECT_FAILED: CouldNotFindSpotifyApp - Spotify app is not installed.")
             _state.update {
                 it.copy(
                     isSpotifyInstalled = false,
@@ -79,7 +88,7 @@ class SpotifyPlaybackController(
         }
 
         if (clientId.isBlank()) {
-            AudiaryLog.w("SpotifyPlaybackController: Client ID is blank.")
+            AudiaryLog.w("REMOTE_CONNECT_FAILED: Spotify Client ID is blank.")
             _state.update {
                 it.copy(
                     isConnecting = false,
@@ -90,7 +99,10 @@ class SpotifyPlaybackController(
         }
 
         _state.update { it.copy(isConnecting = true, error = null) }
-        AudiaryLog.i("SpotifyPlaybackController: Connecting to Spotify App Remote...")
+        AudiaryLog.i("REMOTE_CONNECT_STARTED: clientId=${clientId.take(4)}***, redirectUri=$redirectUri, showAuthView=$showAuthView")
+        if (showAuthView) {
+            AudiaryLog.i("REMOTE_AUTH_STARTED: showAuthView=true, prompting Spotify user authorization if required")
+        }
 
         val connectionParams = ConnectionParams.Builder(clientId)
             .setRedirectUri(redirectUri)
@@ -99,7 +111,8 @@ class SpotifyPlaybackController(
 
         SpotifyAppRemote.connect(context, connectionParams, object : Connector.ConnectionListener {
             override fun onConnected(remote: SpotifyAppRemote) {
-                AudiaryLog.i("SpotifyPlaybackController: Connected to Spotify App Remote!")
+                AudiaryLog.i("REMOTE_CONNECTED: connected to Spotify App Remote (SDK 0.8.0)")
+                AudiaryLog.i("REMOTE_AUTH_SUCCESS: authorization established with Spotify app")
                 appRemote = remote
                 _state.update { it.copy(isConnected = true, isConnecting = false, error = null) }
 
@@ -108,19 +121,34 @@ class SpotifyPlaybackController(
                         handlePlayerState(playerState)
                     }
                     .setErrorCallback { error ->
-                        AudiaryLog.w("SpotifyPlaybackController: PlayerState subscription error: ${error.message}", error)
+                        AudiaryLog.w("REMOTE_STATE_ERROR: PlayerState subscription error: ${error.javaClass.simpleName}: ${error.message}", error)
                     }
 
                 onConnected?.invoke()
             }
 
             override fun onFailure(throwable: Throwable) {
-                AudiaryLog.w("SpotifyPlaybackController: Connection failed: ${throwable.message}", throwable)
                 appRemote = null
-                val errorMsg = when (throwable) {
-                    is CouldNotFindSpotifyApp -> "Spotify app is not running or installed."
+                val className = throwable.javaClass.simpleName
+                val msg = throwable.message.orEmpty()
+                val isAuthRequired = throwable is UserNotAuthorizedException ||
+                        throwable is AuthenticationFailedException ||
+                        msg.contains("explicit user authorization", ignoreCase = true) ||
+                        msg.contains("auth-flow", ignoreCase = true)
+
+                if (isAuthRequired) {
+                    AudiaryLog.w("REMOTE_AUTH_REQUIRED: $className - explicit user authorization required by Spotify. Message: $msg", throwable)
+                }
+                AudiaryLog.w("REMOTE_CONNECT_FAILED: $className - $msg", throwable)
+
+                val errorMsg = when {
+                    isAuthRequired -> "Spotify authorization required. Please approve the prompt in Spotify or verify the Android SHA-1 in the Spotify Developer Dashboard."
+                    throwable is CouldNotFindSpotifyApp -> "Spotify app is not running or installed."
+                    throwable is NotLoggedInException -> "Please log in to your Spotify app."
+                    throwable is OfflineModeException -> "Spotify is in offline mode."
                     else -> throwable.message ?: "Could not connect to Spotify."
                 }
+
                 _state.update {
                     it.copy(
                         isConnected = false,
@@ -214,22 +242,25 @@ class SpotifyPlaybackController(
 
         val remote = appRemote
         if (remote != null && remote.isConnected) {
+            AudiaryLog.i("PLAYBACK_STARTED: uri=$uri")
             remote.playerApi.play(uri)
                 .setResultCallback {
-                    AudiaryLog.i("SpotifyPlaybackController: play($uri) success")
+                    AudiaryLog.i("PLAYBACK_STARTED: play($uri) command accepted by Spotify")
                 }
                 .setErrorCallback { error ->
-                    AudiaryLog.w("SpotifyPlaybackController: play($uri) error: ${error.message}", error)
+                    AudiaryLog.w("PLAYBACK_FAILED: uri=$uri - ${error.javaClass.simpleName}: ${error.message}", error)
                     _state.update { it.copy(error = error.message) }
                 }
         } else {
+            AudiaryLog.i("PLAYBACK_STARTED: uri=$uri (initiating connect first with showAuthView=true)")
             connect(showAuthView = true) {
+                AudiaryLog.i("PLAYBACK_STARTED: sending play($uri) to remote after connection established")
                 appRemote?.playerApi?.play(uri)
                     ?.setResultCallback {
-                        AudiaryLog.i("SpotifyPlaybackController: play($uri) success after connect")
+                        AudiaryLog.i("PLAYBACK_STARTED: play($uri) command accepted by Spotify after connect")
                     }
                     ?.setErrorCallback { error ->
-                        AudiaryLog.w("SpotifyPlaybackController: play($uri) error: ${error.message}", error)
+                        AudiaryLog.w("PLAYBACK_FAILED: uri=$uri - ${error.javaClass.simpleName}: ${error.message}", error)
                         _state.update { it.copy(error = error.message) }
                     }
             }
@@ -243,13 +274,16 @@ class SpotifyPlaybackController(
         val remote = appRemote
         if (remote != null && remote.isConnected) {
             if (_state.value.isPlaying) {
+                AudiaryLog.i("PLAYBACK_PAUSED: pausing active track")
                 remote.playerApi.pause()
             } else {
+                AudiaryLog.i("PLAYBACK_STARTED: resuming active track")
                 remote.playerApi.resume()
             }
         } else {
             val uri = _state.value.trackUri
             if (!uri.isNullOrBlank()) {
+                AudiaryLog.i("PLAYBACK_STARTED: resuming track $uri after connect")
                 connect(showAuthView = true) {
                     appRemote?.playerApi?.resume()
                 }

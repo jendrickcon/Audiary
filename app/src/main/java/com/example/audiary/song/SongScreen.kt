@@ -177,5 +177,15 @@ import com.example.audiary.ui.theme.Space
             color = MaterialTheme.colorScheme.onSurfaceVariant)
         else song.externalUrl?.let { SpotifyAttribution(it) }
         linkError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+        playbackState?.error?.let {
+            Spacer(Modifier.height(Space.tiny))
+            Text(
+                text = it,
+                color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.bodySmall,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.padding(horizontal = Space.small)
+            )
+        }
     }
 }

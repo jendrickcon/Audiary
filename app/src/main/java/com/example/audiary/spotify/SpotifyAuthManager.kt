@@ -60,7 +60,7 @@ class SpotifyAuthManager(
                 .addQueryParameter("client_id", clientId)
                 .addQueryParameter("response_type", "code")
                 .addQueryParameter("redirect_uri", redirect)
-                .addQueryParameter("scope", "user-library-read playlist-read-private playlist-read-collaborative")
+                .addQueryParameter("scope", "user-library-read playlist-read-private playlist-read-collaborative app-remote-control streaming")
                 .addQueryParameter("code_challenge_method", "S256")
                 .addQueryParameter("code_challenge", Pkce.challenge(pending.verifier))
                 .addQueryParameter("state", pending.state).build().toString()
