@@ -12,7 +12,6 @@ Audiary is an editorial, high-aesthetic Android music discovery and journaling c
 <p align="center">
   <img src="docs/screenshots/explore_screen.png" width="30%" alt="Explore Listening Room" />
   <img src="docs/screenshots/cylinder_globe_active.png" width="30%" alt="3D Cylinder Globe" />
-  <img src="docs/screenshots/shuffle_rush.png" width="30%" alt="Shuffle Rush Animation" />
 </p>
 
 ### Spotify Playback & Mini-Player
